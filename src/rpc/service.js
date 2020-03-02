@@ -9,7 +9,6 @@ var util = require("../util/minimal");
 /**
  * A service method callback as used by {@link rpc.ServiceMethod|ServiceMethod}.
  *
- * Differs from {@link RPCImplCallback} in that it is an actual callback of a service method which may not return `response = null`.
  * @typedef rpc.ServiceMethodCallback
  * @template TRes extends Message<TRes>
  * @type {function}
@@ -88,11 +87,15 @@ function isRPCV2(rpcImpl) {
  */
 Service.prototype.rpcCall = function rpcCall(method, requestCtor, responseCtor, request, callback) {
     if (!request)
+    {
         throw TypeError("request must be specified");
+    }
 
     var self = this;
     if (!callback)
+    {
         return util.asPromise(rpcCall, self, method, requestCtor, responseCtor, request);
+    }
 
     var rpcUnaryImpl = self.rpcImpl;
     if (!rpcUnaryImpl) {
@@ -107,9 +110,14 @@ Service.prototype.rpcCall = function rpcCall(method, requestCtor, responseCtor, 
     try {
         return rpcUnaryImpl(
             method,
-            requestCtor[self.requestDelimited ? "encodeDelimited" : "encode"](request).finish(),
+            request,
+            function encodeFn (request) {
+                return requestCtor[self.requestDelimited ? "encodeDelimited" : "encode"](request).finish()
+            },
+            function decodeFn (response) {
+                return responseCtor[self.responseDelimited ? "decodeDelimited" : "decode"](response);
+            },
             function rpcCallback(err, response) {
-
                 if (err) {
                     self.emit("error", err, method);
                     return callback(err);
@@ -118,15 +126,6 @@ Service.prototype.rpcCall = function rpcCall(method, requestCtor, responseCtor, 
                 if (response === null) {
                     self.end(/* endedByRPC */ true);
                     return undefined;
-                }
-
-                if (!(response instanceof responseCtor)) {
-                    try {
-                        response = responseCtor[self.responseDelimited ? "decodeDelimited" : "decode"](response);
-                    } catch (err) {
-                        self.emit("error", err, method);
-                        return callback(err);
-                    }
                 }
 
                 self.emit("data", response, method);
@@ -143,7 +142,9 @@ Service.prototype.rpcCall = function rpcCall(method, requestCtor, responseCtor, 
 // TODO: docs
 Service.prototype.serverStreamCall = function serverStreamCall(method, requestCtor, responseCtor, request) {
     if (!request)
+    {
         throw TypeError("request must be specified");
+    }
 
     var self = this;
 
@@ -153,8 +154,11 @@ Service.prototype.serverStreamCall = function serverStreamCall(method, requestCt
 
     return self.rpcImpl.serverStreamCall(
         method,
-        requestCtor[self.requestDelimited ? "encodeDelimited" : "encode"](request).finish(),
-        function responseFn (response) {
+        request,
+        function encodeFn (request) {
+            return requestCtor[self.requestDelimited ? "encodeDelimited" : "encode"](request).finish()
+        },
+        function decodeFn (response) {
             return responseCtor[self.responseDelimited ? "decodeDelimited" : "decode"](response);
         }
     );

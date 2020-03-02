@@ -1289,7 +1289,6 @@ export namespace rpc {
     /**
      * A service method callback as used by {@link rpc.ServiceMethod|ServiceMethod}.
      *
-     * Differs from {@link RPCImplCallback} in that it is an actual callback of a service method which may not return `response = null`.
      * @param error Error, if any
      * @param [response] Response message
      */
@@ -1341,11 +1340,10 @@ export namespace rpc {
     }
 }
 
-type RPCUnaryCall = (method: (Method|rpc.ServiceMethod<Message<{}>, Message<{}>>), requestData: Uint8Array, callback: RPCImplCallback) => void;
-// TODO: check if all args are valid
-type RPCServerStreamCall = (method: (Method|rpc.ServiceMethod<Message<{}>, Message<{}>>), requestData: Uint8Array, decodeFn: (responseData: Uint8Array) => protobuf.Message) => util.EventEmitter;
-type RPCClientStreamCall = (method: (Method|rpc.ServiceMethod<Message<{}>, Message<{}>>), encodeFn: (requestData: any) => Uint8Array, decodeFn: (responseData: Uint8Array) => protobuf.Message) => util.EventEmitter;
-type RPCBidiStreamCall = (method: (Method|rpc.ServiceMethod<Message<{}>, Message<{}>>), encodeFn: (requestData: any) => Uint8Array, decodeFn: (responseData: Uint8Array) => protobuf.Message) => util.EventEmitter;
+type RPCUnaryCall = (method: (Method|rpc.ServiceMethod<Message<{}>, Message<{}>>), request: any, encodeFn: (request: any) => Uint8Array, decodeFn: (response: Uint8Array) => protobuf.Message, callback: (error: (Error|null), response?: (protobuf.Message|null)) => void) => void;
+type RPCServerStreamCall = (method: (Method|rpc.ServiceMethod<Message<{}>, Message<{}>>), request: any, encodeFn: (request: any) => Uint8Array, decodeFn: (response: Uint8Array) => protobuf.Message) => util.EventEmitter;
+type RPCClientStreamCall = (method: (Method|rpc.ServiceMethod<Message<{}>, Message<{}>>), encodeFn: (request: any) => Uint8Array, decodeFn: (response: Uint8Array) => protobuf.Message) => util.EventEmitter;
+type RPCBidiStreamCall = (method: (Method|rpc.ServiceMethod<Message<{}>, Message<{}>>), encodeFn: (request: any) => Uint8Array, decodeFn: (response: Uint8Array) => protobuf.Message) => util.EventEmitter;
 
 /**
  * RPCHandler allows to pass custom RPC implementation for unary and streaming calls
@@ -1392,13 +1390,6 @@ export interface RPCClientStream<T> {
  * @param callback Callback function
  */
 type RPCImpl = RPCUnaryCall;
-
-/**
- * Node-style callback as used by {@link RPCImpl}.
- * @param error Error, if any, otherwise `null`
- * @param [response] Response data or `null` to signal end of stream, if there hasn't been an error
- */
-type RPCImplCallback = (error: (Error|null), response?: (Uint8Array|null)) => void;
 
 /** Reflected service. */
 export class Service extends NamespaceBase {

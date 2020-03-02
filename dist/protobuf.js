@@ -1,6 +1,6 @@
 /*!
  * protobuf.js v6.8.8 (c) 2016, daniel wirtz
- * compiled thu, 19 jul 2018 00:33:25 utc
+ * compiled mon, 02 mar 2020 13:36:56 utc
  * licensed under the bsd-3-clause license
  * see: https://github.com/dcodeio/protobuf.js for details
  */
@@ -5626,7 +5626,6 @@ var util = require(39);
 /**
  * A service method callback as used by {@link rpc.ServiceMethod|ServiceMethod}.
  *
- * Differs from {@link RPCImplCallback} in that it is an actual callback of a service method which may not return `response = null`.
  * @typedef rpc.ServiceMethodCallback
  * @template TRes extends Message<TRes>
  * @type {function}
@@ -5657,9 +5656,12 @@ var util = require(39);
  * @param {boolean} [responseDelimited=false] Whether responses are length-delimited
  */
 function Service(rpcImpl, requestDelimited, responseDelimited) {
-
-    if (typeof rpcImpl !== "function")
+    
+    if (typeof rpcImpl !== "object" && typeof rpcImpl !== "function") {
         throw TypeError("rpcImpl must be a function");
+    } else if (typeof rpcImpl === "object" && !isRPCV2(rpcImpl)) {
+        throw TypeError("rpcImpl should implement RPCHandler")
+    }
 
     util.EventEmitter.call(this);
 
@@ -5682,6 +5684,13 @@ function Service(rpcImpl, requestDelimited, responseDelimited) {
     this.responseDelimited = Boolean(responseDelimited);
 }
 
+function isRPCV2(rpcImpl) {
+    return typeof rpcImpl.unaryCall === "function" &&
+    typeof rpcImpl.serverStreamCall === "function" &&
+    typeof rpcImpl.clientStreamCall === "function" &&
+    typeof rpcImpl.bidiStreamCall === "function";
+}
+
 /**
  * Calls a service method through {@link rpc.Service#rpcImpl|rpcImpl}.
  * @param {Method|rpc.ServiceMethod<TReq,TRes>} method Reflected or static method
@@ -5694,25 +5703,38 @@ function Service(rpcImpl, requestDelimited, responseDelimited) {
  * @template TRes extends Message<TRes>
  */
 Service.prototype.rpcCall = function rpcCall(method, requestCtor, responseCtor, request, callback) {
-
     if (!request)
+    {
         throw TypeError("request must be specified");
+    }
 
     var self = this;
     if (!callback)
+    {
         return util.asPromise(rpcCall, self, method, requestCtor, responseCtor, request);
+    }
 
-    if (!self.rpcImpl) {
+    var rpcUnaryImpl = self.rpcImpl;
+    if (!rpcUnaryImpl) {
         setTimeout(function() { callback(Error("already ended")); }, 0);
         return undefined;
     }
 
-    try {
-        return self.rpcImpl(
-            method,
-            requestCtor[self.requestDelimited ? "encodeDelimited" : "encode"](request).finish(),
-            function rpcCallback(err, response) {
+    if (typeof rpcUnaryImpl.unaryCall === "function") {
+        rpcUnaryImpl = rpcUnaryImpl.unaryCall;
+    }
 
+    try {
+        return rpcUnaryImpl(
+            method,
+            request,
+            function encodeFn (request) {
+                return requestCtor[self.requestDelimited ? "encodeDelimited" : "encode"](request).finish()
+            },
+            function decodeFn (response) {
+                return responseCtor[self.responseDelimited ? "decodeDelimited" : "decode"](response);
+            },
+            function rpcCallback(err, response) {
                 if (err) {
                     self.emit("error", err, method);
                     return callback(err);
@@ -5721,15 +5743,6 @@ Service.prototype.rpcCall = function rpcCall(method, requestCtor, responseCtor, 
                 if (response === null) {
                     self.end(/* endedByRPC */ true);
                     return undefined;
-                }
-
-                if (!(response instanceof responseCtor)) {
-                    try {
-                        response = responseCtor[self.responseDelimited ? "decodeDelimited" : "decode"](response);
-                    } catch (err) {
-                        self.emit("error", err, method);
-                        return callback(err);
-                    }
                 }
 
                 self.emit("data", response, method);
@@ -5741,6 +5754,69 @@ Service.prototype.rpcCall = function rpcCall(method, requestCtor, responseCtor, 
         setTimeout(function() { callback(err); }, 0);
         return undefined;
     }
+};
+
+// TODO: docs
+Service.prototype.serverStreamCall = function serverStreamCall(method, requestCtor, responseCtor, request) {
+    if (!request)
+    {
+        throw TypeError("request must be specified");
+    }
+
+    var self = this;
+
+    if (typeof self.rpcImpl.serverStreamCall !== "function") {
+        throw new Error("rpcImpl should implement serverStreamCall to support server streaming");
+    }
+
+    return self.rpcImpl.serverStreamCall(
+        method,
+        request,
+        function encodeFn (request) {
+            return requestCtor[self.requestDelimited ? "encodeDelimited" : "encode"](request).finish()
+        },
+        function decodeFn (response) {
+            return responseCtor[self.responseDelimited ? "decodeDelimited" : "decode"](response);
+        }
+    );
+};
+
+// TODO: docs
+Service.prototype.clientStreamCall = function clientStreamCall(method, requestCtor, responseCtor) {
+    var self = this;
+
+    if (typeof self.rpcImpl.clientStreamCall !== "function") {
+        throw new Error("rpcImpl should implement clientStreamCall to support client streaming");
+    }
+
+    return self.rpcImpl.clientStreamCall(
+        method,
+        function encodeFn (request) {
+            return requestCtor[self.requestDelimited ? "encodeDelimited" : "encode"](request).finish()
+        },
+        function decodeFn (response) {
+            return responseCtor[self.responseDelimited ? "decodeDelimited" : "decode"](response);
+        }
+    );
+};
+
+// TODO: docs
+Service.prototype.bidiStreamCall = function bidiStreamCall(method, requestCtor, responseCtor) {
+    var self = this;
+
+    if (typeof self.rpcImpl.bidiStreamCall !== "function") {
+        throw new Error("rpcImpl should implement bidiStreamCall to support bidi streaming");
+    }
+
+    return self.rpcImpl.bidiStreamCall(
+        method,
+        function encodeFn (request) {
+            return requestCtor[self.requestDelimited ? "encodeDelimited" : "encode"](request).finish()
+        },
+        function decodeFn (response) {
+            return responseCtor[self.responseDelimited ? "decodeDelimited" : "decode"](response);
+        }
+    );
 };
 
 /**
